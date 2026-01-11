@@ -214,3 +214,169 @@
     </script>
 </body>
 </html>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Radio-Roulette REAL</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { 
+            background: #0b0b0b; color: #eee; font-family: sans-serif;
+            display: flex; flex-direction: column; align-items: center; 
+            margin: 0; padding: 15px; height: 100vh; overflow: hidden;
+        }
+
+        /* Кнопка настроек */
+        #gear-btn {
+            position: fixed; top: 15px; right: 15px;
+            width: 50px; height: 50px; background: #222;
+            border: 2px solid #ff4500; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px; cursor: pointer; z-index: 1000;
+        }
+
+        h1 { font-size: 22px; color: #ff4500; margin: 40px 0 10px; }
+
+        /* Сетка для мобил */
+        .grid {
+            display: grid; grid-template-columns: 1fr 1fr; grid-gap: 10px;
+            width: 100%; max-width: 350px;
+        }
+        .card {
+            background: #151515; border: 2px solid #333; height: 110px;
+            border-radius: 15px; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; transition: 0.3s;
+            font-size: 13px; font-weight: bold;
+        }
+        .active { border-color: #ff4500; box-shadow: 0 0 10px rgba(255,69,0,0.3); }
+
+        /* Кнопки внизу */
+        .btns { margin-top: auto; margin-bottom: 20px; width: 100%; max-width: 350px; }
+        .btn-main { 
+            width: 100%; padding: 18px; border-radius: 35px; border: none;
+            font-size: 18px; font-weight: bold; cursor: pointer;
+        }
+        #start-btn { background: #ff4500; color: white; }
+        #stop-btn { background: #900; color: white; display: none; }
+
+        /* Модалка */
+        #modal {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9);
+            z-index: 2000; justify-content: center; align-items: center;
+        }
+        .modal-box { background: #1a1a1a; padding: 25px; border-radius: 20px; border: 1px solid #ff4500; width: 85%; max-width: 300px; }
+    </style>
+</head>
+<body>
+
+    <div id="gear-btn" onclick="openMenu()">⚙️</div>
+
+    <h1>RADIO-ROULETTE</h1>
+    <p style="font-size: 14px; margin-bottom: 20px;">В сети: <span id="online-count">1</span></p>
+
+    <div class="grid" id="grid"></div>
+
+    <div class="btns">
+        <button id="start-btn" class="btn-main" onclick="startSearch()">НАЙТИ ЛЮДЕЙ</button>
+        <button id="stop-btn" class="btn-main" onclick="stopSearch()">ПРЕКРАТИТЬ</button>
+    </div>
+
+    <div id="modal">
+        <div class="modal-box">
+            <h3 style="margin-top:0">Настройки</h3>
+            <label>Слотов: </label>
+            <select id="slots-count" onchange="resetAll()" style="width:100%; padding:10px; margin:10px 0;">
+                <option value="2">2 человека</option>
+                <option value="4" selected>4 человека</option>
+            </select>
+            <button onclick="closeMenu()" class="btn-main" style="font-size:14px; padding:10px; background:#444; color:white;">ОК</button>
+        </div>
+    </div>
+
+    <script>
+        // === ВСТАВЬ СВОИ ДАННЫЕ ИЗ FIREBASE НИЖЕ ===
+        const firebaseConfig = {
+            apiKey: "AIzaSyCNYwS-0xfOjKrfUQeMFmXCdTjOlZ2Wa74",
+  authDomain: "radio-roulette.firebaseapp.com",
+  databaseURL: "https://radio-roulette-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "radio-roulette",
+  storageBucket: "radio-roulette.firebasestorage.app",
+  messagingSenderId: "459370959190",
+  appId: "1:459370959190:web:ec2d711e70216b8d35c6f7"
+        };
+        // ==========================================
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        let myId = Math.random().toString(36).substring(7);
+        let slots = 4;
+
+        function openMenu() { document.getElementById('modal').style.display = 'flex'; }
+        function closeMenu() { document.getElementById('modal').style.display = 'none'; }
+
+        function draw() {
+            slots = parseInt(document.getElementById('slots-count').value);
+            const g = document.getElementById('grid');
+            g.innerHTML = '<div class="card active">👤<br>ТЫ</div>';
+            for(let i=1; i<slots; i++) {
+                g.innerHTML += `<div class="card" id="slot-${i}" style="opacity:0.2">?</div>`;
+            }
+        }
+
+        // Обновление онлайна
+        db.ref('online').on('value', snap => {
+            document.getElementById('online-count').innerText = snap.numChildren() || 1;
+        });
+
+        // Функция поиска
+        function startSearch() {
+            const btn = document.getElementById('start-btn');
+            btn.disabled = true; btn.innerText = "ИЩЕМ РЕАЛЬНЫХ...";
+            
+            // Записываем себя в очередь поиска
+            db.ref('queue/' + myId).set({ timestamp: Date.now() });
+
+            // Слушаем очередь: если кто-то появился, "подключаем"
+            db.ref('queue').limitToFirst(slots).on('value', snap => {
+                const users = snap.val();
+                if (users) {
+                    const ids = Object.keys(users);
+                    ids.forEach((id, index) => {
+                        if (id !== myId && index < slots) {
+                            const slot = document.getElementById(`slot-${index}`);
+                            if (slot) {
+                                slot.style.opacity = "1";
+                                slot.classList.add('active');
+                                slot.innerHTML = `🔊<br>User_${id.substring(0,3)}`;
+                            }
+                        }
+                    });
+                    if (ids.length > 1) {
+                        btn.style.display = "none";
+                        document.getElementById('stop-btn').style.display = "block";
+                    }
+                }
+            });
+        }
+
+        function stopSearch() {
+            db.ref('queue/' + myId).remove();
+            location.reload(); // Проще всего обновить страницу для сброса
+        }
+
+        // При закрытии вкладки убираем себя из очереди
+        window.onbeforeunload = () => { db.ref('queue/' + myId).remove(); };
+
+        draw();
+        function resetAll() { draw(); }
+    </script>
+</body>
+</html> // ...
+
+  // Добавьте зависимость для плагина Gradle для сервисов Google
+  id ( "com.google.gms.google-services" ) version "4.4.4" apply false
